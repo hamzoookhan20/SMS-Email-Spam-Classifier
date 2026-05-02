@@ -1,3 +1,14 @@
+import nltk
+
+# Download the necessary NLTK data packages
+nltk.download('punkt')
+nltk.download('punkt_tab') # Needed for newer NLTK versions
+nltk.download('stopwords') # You likely need this for transform_text too
+
+
+
+
+
 import streamlit as st
 import time
 import pickle
