@@ -17,6 +17,13 @@ def load_nltk_resources():
 
 ps, stop_words = load_nltk_resources()
 
+# Emergency fix if the loaded vectorizer isn't fitted
+if not hasattr(tfidf, 'vocabulary_'):
+    # We create a tiny fake dataset to 'wake up' the vectorizer
+    # NOTE: This is a temporary fix; accuracy will be low until you upload your real pkl
+    st.warning("Re-fitting vectorizer... Accuracy might be low.")
+    tfidf.fit(["sample text", "spam email", "ham message"])
+
 # --- 2. TEXT PREPROCESSING ---
 def transform_text(text):
     # Lowercase and Tokenize
