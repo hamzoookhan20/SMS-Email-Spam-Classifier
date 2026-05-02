@@ -1,128 +1,101 @@
-import nltk
-
-# Download the necessary NLTK data packages
-nltk.download('punkt')
-nltk.download('punkt_tab') # Needed for newer NLTK versions
-nltk.download('stopwords') # You likely need this for transform_text too
-
-
-
-
-
 import streamlit as st
-import time
 import pickle
 import string
+import time
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 
-# Ensure required NLTK resources are downloaded
-nltk.data.path.append('/app/nltk_data')
-nltk.download('punkt', quiet=True)
-nltk.download('stopwords', quiet=True)
+# --- 1. OPTIMIZED NLTK LOADING ---
+# Use a cache function so it only downloads once per session
+@st.cache_resource
+def load_nltk_resources():
+    nltk.download('punkt', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
+    nltk.download('stopwords', quiet=True)
+    return PorterStemmer(), set(stopwords.words('english'))
 
-# Initialize stemmer
-ps = PorterStemmer()
+ps, stop_words = load_nltk_resources()
 
-# Text preprocessing function
+# --- 2. TEXT PREPROCESSING ---
 def transform_text(text):
+    # Lowercase and Tokenize
     text = text.lower()
-    text = nltk.word_tokenize(text)
+    tokens = nltk.word_tokenize(text)
 
-    y = []
-    for i in text:
-        if i.isalnum():
-            y.append(i)
+    # Remove non-alphanumeric, stopwords, and punctuation in one pass
+    cleaned_tokens = [
+        ps.stem(word) for word in tokens 
+        if word.isalnum() and word not in stop_words and word not in string.punctuation
+    ]
 
-    text = y[:]
-    y.clear()
+    return " ".join(cleaned_tokens)
 
-    for i in text:
-        if i not in stopwords.words('english') and i not in string.punctuation:
-            y.append(i)
+# --- 3. MODEL LOADING ---
+@st.cache_resource
+def load_model():
+    try:
+        with open('vectorizer.pkl', 'rb') as f:
+            tfidf = pickle.load(f)
+        with open('model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        return tfidf, model
+    except FileNotFoundError:
+        return None, None
 
-    text = y[:]
-    y.clear()
+tfidf, model = load_model()
 
-    for i in text:
-        y.append(ps.stem(i))
-
-    return " ".join(y)
-
-# Load model and vectorizer (make sure these files exist in the same directory)
-try:
-    tfidf = pickle.load(open('vectorizer.pkl', 'rb'))
-    model = pickle.load(open('model.pkl', 'rb'))
-except FileNotFoundError as e:
-    st.error(f"Model or vectorizer file not found: {e}")
-    st.stop()
-
-# Set up Streamlit page configuration at the start
+# --- 4. PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Email/SMS Spam Classifier",
+    page_title="AI Spam Classifier",
     page_icon="📧",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="centered"
 )
 
-# Main content
-st.header("Email/SMS Spam Classifier")
-st.write("For better results, please paste the complete SMS/EMAIL.")
-
-input_sms = st.text_area("Enter the message")
-
-if st.button('Predict'):
-    if input_sms.strip() == "":
-        st.warning("Please enter a message to predict.")
-    else:
-        # Show loading spinner
-        with st.spinner('Predicting...'):
-            time.sleep(3)  # Simulate prediction time
-            # Preprocess input text
-            transformed_sms = transform_text(input_sms)
-            # Vectorize input text
-            vector_input = tfidf.transform([transformed_sms])
-            # Predict using the model
-            result = model.predict(vector_input)[0]
-            # Display result
-            if result == 1:
-                st.header("Spam")
-            else:
-                st.header("Not Spam")
-
-# Footer content
-st.markdown(
-    """
-    <hr>
-    <div style="text-align: center;">
-        <p>Build by Kunal Bandale ⚡</p>
-        <p>
-            <a href="https://github.com/kunalbandale" style="text-decoration: none;">GitHub</a> |
-            <a href="https://www.linkedin.com/in/kunalbandale" style="text-decoration: none;">LinkedIn</a> |
-            <a href="https://www.kunalbandale.in" style="text-decoration: none;">Website</a>
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-# Mobile responsiveness CSS
-st.markdown(
-    """
+# Custom CSS for a modern look
+st.markdown("""
     <style>
-        /* Adjust text area height on mobile */
-        @media (max-width: 600px) {
-            .stTextArea textarea {
-                min-height: 100px !important;
-            }
-            .css-vfskoc {
-                flex-direction: column !important;
-                align-items: center !important;
-                justify-content: center !important;
-            }
-        }
+    .stTextArea textarea { font-size: 1.1rem !important; }
+    .status-text { font-weight: bold; font-size: 1.5rem; text-align: center; }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+    """, unsafe_allow_html=True)
+
+# --- 5. MAIN UI ---
+st.header("📧 Email/SMS Spam Classifier")
+st.info("Paste your message below to check if it's safe or spam.")
+
+input_sms = st.text_area("Enter the message here", height=150)
+
+if st.button('Analyze Message', type="primary", use_container_width=True):
+    if not input_sms.strip():
+        st.warning("Please enter a message to analyze.")
+    elif model is None:
+        st.error("Error: Model files (model.pkl/vectorizer.pkl) not found in directory.")
+    else:
+        with st.spinner('AI is analyzing the text patterns...'):
+            # Logic
+            transformed_sms = transform_text(input_sms)
+            vector_input = tfidf.transform([transformed_sms])
+            result = model.predict(vector_input)[0]
+            
+            st.divider()
+            
+            # Results display
+            if result == 1:
+                st.error("### 🚨 Result: SPAM")
+                st.toast("Stay safe! This looks suspicious.")
+            else:
+                st.success("### ✅ Result: NOT SPAM")
+                st.toast("This message looks legitimate.")
+
+# --- 6. FOOTER ---
+st.markdown("<br><hr>", unsafe_allow_html=True)
+cols = st.columns(3)
+with cols[1]:
+    st.markdown("""
+        <div style="text-align: center; color: grey;">
+            <p>Built with ❤️ by <b>Kunal Bandale</b></p>
+            <a href="https://github.com/kunalbandale">GitHub</a> | 
+            <a href="https://linkedin.com/in/kunalbandale">LinkedIn</a>
+        </div>
+    """, unsafe_allow_html=True)
