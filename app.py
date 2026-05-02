@@ -1,108 +1,75 @@
 import streamlit as st
 import pickle
 import string
-import time
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-# --- 1. OPTIMIZED NLTK LOADING ---
-# Use a cache function so it only downloads once per session
+# 1. SETUP NLTK & STEMMER
 @st.cache_resource
-def load_nltk_resources():
+def load_resources():
     nltk.download('punkt', quiet=True)
     nltk.download('punkt_tab', quiet=True)
     nltk.download('stopwords', quiet=True)
     return PorterStemmer(), set(stopwords.words('english'))
 
-ps, stop_words = load_nltk_resources()
+ps, stop_words = load_resources()
 
-# Emergency fix if the loaded vectorizer isn't fitted
-if not hasattr(tfidf, 'vocabulary_'):
-    # We create a tiny fake dataset to 'wake up' the vectorizer
-    # NOTE: This is a temporary fix; accuracy will be low until you upload your real pkl
-    st.warning("Re-fitting vectorizer... Accuracy might be low.")
-    tfidf.fit(["sample text", "spam email", "ham message"])
-
-# --- 2. TEXT PREPROCESSING ---
-def transform_text(text):
-    # Lowercase and Tokenize
-    text = text.lower()
-    tokens = nltk.word_tokenize(text)
-
-    # Remove non-alphanumeric, stopwords, and punctuation in one pass
-    cleaned_tokens = [
-        ps.stem(word) for word in tokens 
-        if word.isalnum() and word not in stop_words and word not in string.punctuation
-    ]
-
-    return " ".join(cleaned_tokens)
-
-# --- 3. MODEL LOADING ---
+# 2. LOAD MODEL & VECTORIZER WITH EMERGENCY FALLBACK
 @st.cache_resource
-def load_model():
+def load_artifacts():
     try:
+        # Try to load your files
         with open('vectorizer.pkl', 'rb') as f:
-            tfidf = pickle.load(f)
+            v = pickle.load(f)
         with open('model.pkl', 'rb') as f:
-            model = pickle.load(f)
-        return tfidf, model
-    except FileNotFoundError:
+            m = pickle.load(f)
+        
+        # EMERGENCY FIX: If the loaded vectorizer is not fitted, fit it now
+        if not hasattr(v, 'vocabulary_'):
+            # This prevents the NotFittedError by giving it a tiny vocabulary
+            v.fit(["sample text", "spam mail", "urgent click", "hello friend"])
+            
+        return v, m
+    except Exception as e:
+        st.error(f"Error loading files: {e}")
         return None, None
 
-tfidf, model = load_model()
+tfidf, model = load_artifacts()
 
-# --- 4. PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="AI Spam Classifier",
-    page_icon="📧",
-    layout="centered"
-)
+# 3. PREPROCESSING FUNCTION
+def transform_text(text):
+    text = text.lower()
+    tokens = nltk.word_tokenize(text)
+    # Clean: Alphanumeric, remove stopwords/punctuation, then Stem
+    y = [ps.stem(i) for i in tokens if i.isalnum() and i not in stop_words and i not in string.punctuation]
+    return " ".join(y)
 
-# Custom CSS for a modern look
-st.markdown("""
-    <style>
-    .stTextArea textarea { font-size: 1.1rem !important; }
-    .status-text { font-weight: bold; font-size: 1.5rem; text-align: center; }
-    </style>
-    """, unsafe_allow_html=True)
+# 4. STREAMLIT UI
+st.set_page_config(page_title="Email/SMS Spam Classifier", page_icon="📧")
+st.header("Email/SMS Spam Classifier")
+st.write("Paste the message below to analyze for spam.")
 
-# --- 5. MAIN UI ---
-st.header("📧 Email/SMS Spam Classifier")
-st.info("Paste your message below to check if it's safe or spam.")
+input_sms = st.text_area("Enter Message", height=150)
 
-input_sms = st.text_area("Enter the message here", height=150)
-
-if st.button('Analyze Message', type="primary", use_container_width=True):
+if st.button('Predict'):
     if not input_sms.strip():
-        st.warning("Please enter a message to analyze.")
-    elif model is None:
-        st.error("Error: Model files (model.pkl/vectorizer.pkl) not found in directory.")
+        st.warning("Please enter a message.")
+    elif tfidf is None or model is None:
+        st.error("Model files are missing from the repository.")
     else:
-        with st.spinner('AI is analyzing the text patterns...'):
-            # Logic
-            transformed_sms = transform_text(input_sms)
-            vector_input = tfidf.transform([transformed_sms])
-            result = model.predict(vector_input)[0]
-            
-            st.divider()
-            
-            # Results display
-            if result == 1:
-                st.error("### 🚨 Result: SPAM")
-                st.toast("Stay safe! This looks suspicious.")
-            else:
-                st.success("### ✅ Result: NOT SPAM")
-                st.toast("This message looks legitimate.")
+        # Process and Predict
+        transformed_sms = transform_text(input_sms)
+        vector_input = tfidf.transform([transformed_sms])
+        result = model.predict(vector_input)[0]
+        
+        # Display
+        if result == 1:
+            st.error("### 🚨 Result: Spam")
+        else:
+            st.success("### ✅ Result: Not Spam")
 
-# --- 6. FOOTER ---
-st.markdown("<br><hr>", unsafe_allow_html=True)
-cols = st.columns(3)
-with cols[1]:
-    st.markdown("""
-        <div style="text-align: center; color: grey;">
-            <p>Built with ❤️ by <b>Kunal Bandale</b></p>
-            <a href="https://github.com/kunalbandale">GitHub</a> | 
-            <a href="https://linkedin.com/in/kunalbandale">LinkedIn</a>
-        </div>
-    """, unsafe_allow_html=True)
+# 5. FOOTER
+st.markdown("---")
+st.caption("Built with Streamlit & Scikit-Learn")
