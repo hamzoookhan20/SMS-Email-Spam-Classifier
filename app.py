@@ -16,23 +16,24 @@ def load_resources():
 
 ps, stop_words = load_resources()
 
-# --- 2. LOAD ARTIFACTS WITH SAFETY CHECK ---
+# --- 2. LOAD ARTIFACTS WITH SAFETY GATE ---
 @st.cache_resource
-def load_model_and_vectorizer():
+def load_artifacts():
     try:
         with open('vectorizer.pkl', 'rb') as f:
             v = pickle.load(f)
         with open('model.pkl', 'rb') as f:
             m = pickle.load(f)
         
-        # Check if vectorizer is 'Fitted'
+        # Check if the vectorizer was actually fitted (has a vocabulary)
         if not hasattr(v, 'vocabulary_'):
             return "NOT_FITTED", None
+            
         return v, m
     except Exception as e:
-        return f"ERROR: {str(e)}", None
+        return f"FILE_ERROR: {str(e)}", None
 
-tfidf, model = load_model_and_vectorizer()
+tfidf, model = load_artifacts()
 
 # --- 3. PREPROCESSING ---
 def transform_text(text):
@@ -46,31 +47,32 @@ def transform_text(text):
 st.set_page_config(page_title="Spam Classifier", page_icon="🛡️")
 st.header("🛡️ Email/SMS Spam Classifier")
 
-# Error Handling for the NotFittedError
+# If the Safety Gate catches a bad file
 if tfidf == "NOT_FITTED":
-    st.error("### ❌ Broken Vectorizer Detected")
-    st.info("""
-        The `vectorizer.pkl` from the forked repo is empty. 
-        **To fix this:** Go to your Colab, run `tfidf.fit(X_train)`, 
-        save the file, and upload YOUR `vectorizer.pkl` to GitHub.
-    """)
+    st.error("### ❌ Broken Vectorizer File Detected")
+    st.warning("The `vectorizer.pkl` you forked is empty. It has no vocabulary.")
+    st.info("💡 **How to fix:** Go to your Colab, run `tfidf.fit(X_train)`, save the file, and upload YOUR version of `vectorizer.pkl` to GitHub.")
+    st.stop()
+elif isinstance(tfidf, str) and "FILE_ERROR" in tfidf:
+    st.error(f"### ❌ Error Loading Files: {tfidf}")
     st.stop()
 
-input_sms = st.text_area("Paste the message here:", height=150)
+input_sms = st.text_area("Paste the message here:", height=150, placeholder="Example: Win a free iPhone now!")
 
-if st.button('Predict', type="primary"):
+if st.button('Analyze Message', type="primary"):
     if not input_sms.strip():
-        st.warning("Please enter a message.")
+        st.warning("Please enter some text.")
     else:
-        # Step-by-step processing
+        # Pre-process, Vectorize, and Predict
         transformed_sms = transform_text(input_sms)
         vector_input = tfidf.transform([transformed_sms])
         prediction = model.predict(vector_input)[0]
         
+        st.divider()
         if prediction == 1:
-            st.error("### 🚨 Result: Spam")
+            st.error("### 🚨 Result: SPAM")
         else:
-            st.success("### ✅ Result: Not Spam")
+            st.success("### ✅ Result: NOT SPAM (HAM)")
 
 st.markdown("---")
-st.caption("Built with Python & Scikit-Learn")
+st.caption("Machine Learning Pipeline: NLTK -> TF-IDF -> MultinomialNB")
